@@ -1,0 +1,1 @@
+Streamlit dashboard. Environment: set DATABASE_URL and API_URL. Run with `streamlit run streamlit_app.py` or via docker-compose.

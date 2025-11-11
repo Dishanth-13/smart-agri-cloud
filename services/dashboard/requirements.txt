@@ -1,0 +1,6 @@
+streamlit
+sqlalchemy==2.0.20
+psycopg2-binary==2.9.7
+requests
+pandas
+python-dotenv==1.0.0
