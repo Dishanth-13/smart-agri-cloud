@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, Text, TIMESTAMP, Float
+from sqlalchemy import Column, Integer, BigInteger, Text, TIMESTAMP, Float, Boolean
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -29,6 +29,6 @@ class ModelRecord(Base):
     path = Column(Text)
     version = Column(Text, nullable=True)
     accuracy = Column(Float, nullable=True)
-    metadata = Column(Text, nullable=True)
-    active = Column(Integer, server_default='0')
+    model_metadata = Column(Text, nullable=True)
+    active = Column(Boolean, server_default='false')
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())

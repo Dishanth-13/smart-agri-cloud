@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from app.database import SessionLocal, engine
 from app import models, crud
 from app.schemas import ReadingIn, PredictRequest, PredictResponse, Health, ModelIn, ModelOut
@@ -13,30 +14,31 @@ app = FastAPI(title='smart-agri-api')
 # create tables metadata (note: in production use migrations)
 models.Base.metadata.create_all(bind=engine)
 
-# ensure models table exists with desired columns (id,name,path,version,accuracy,metadata,active,created_at)
+# ensure models table exists with desired columns (id,name,path,version,accuracy,model_metadata,active,created_at)
 with engine.connect() as conn:
-    conn.execute('''
+    conn.execute(text('''
     CREATE TABLE IF NOT EXISTS models (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
         path TEXT NOT NULL,
         version TEXT,
         accuracy DOUBLE PRECISION,
-        metadata JSONB,
+        model_metadata JSONB,
         active BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
     );
-    ''')
+    '''))
 
     # ensure columns exist (Postgres supports IF NOT EXISTS in ADD COLUMN from newer versions)
     try:
-        conn.execute("ALTER TABLE models ADD COLUMN IF NOT EXISTS version TEXT;")
-        conn.execute("ALTER TABLE models ADD COLUMN IF NOT EXISTS accuracy DOUBLE PRECISION;")
-        conn.execute("ALTER TABLE models ADD COLUMN IF NOT EXISTS metadata JSONB;")
-        conn.execute("ALTER TABLE models ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT FALSE;")
-        conn.execute("ALTER TABLE models ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now();")
+        conn.execute(text("ALTER TABLE models ADD COLUMN IF NOT EXISTS version TEXT;"))
+        conn.execute(text("ALTER TABLE models ADD COLUMN IF NOT EXISTS accuracy DOUBLE PRECISION;"))
+        conn.execute(text("ALTER TABLE models ADD COLUMN IF NOT EXISTS model_metadata JSONB;"))
+        conn.execute(text("ALTER TABLE models ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT FALSE;"))
+        conn.execute(text("ALTER TABLE models ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now();"))
     except Exception:
         pass
+    conn.commit()
 
 
 # dependency
@@ -65,7 +67,7 @@ def register_model(model_in: ModelIn, db: Session = Depends(get_db)):
         'path': m.path,
         'version': m.version,
         'accuracy': m.accuracy,
-        'metadata': None if not m.metadata else m.metadata,
+        'metadata': None if not m.model_metadata else m.model_metadata,
         'active': 1 if m.active else 0,
         'created_at': m.created_at
     }
@@ -81,7 +83,7 @@ def get_latest_model(db: Session = Depends(get_db)):
         'path': m.path,
         'version': m.version,
         'accuracy': m.accuracy,
-        'metadata': None if not m.metadata else m.metadata,
+        'metadata': None if not m.model_metadata else m.model_metadata,
         'active': 1 if m.active else 0,
         'created_at': m.created_at
     }

@@ -25,10 +25,10 @@ def get_latest_reading_for_farm(db: Session, farm_id: int):
 # Model CRUD
 
 def register_model(db: Session, name: str, path: str, version: str=None, accuracy: float=None, metadata: str=None, activate: bool=False):
-    m = models.ModelRecord(name=name, path=path, version=version, accuracy=accuracy, metadata=metadata, active=1 if activate else 0)
+    m = models.ModelRecord(name=name, path=path, version=version, accuracy=accuracy, model_metadata=metadata, active=activate)
     if activate:
         # deactivate others
-        db.query(models.ModelRecord).update({models.ModelRecord.active: 0})
+        db.query(models.ModelRecord).update({models.ModelRecord.active: False})
     db.add(m)
     db.commit()
     db.refresh(m)
@@ -36,7 +36,7 @@ def register_model(db: Session, name: str, path: str, version: str=None, accurac
 
 
 def get_active_model(db: Session):
-    return db.query(models.ModelRecord).filter(models.ModelRecord.active==1).order_by(models.ModelRecord.created_at.desc()).first()
+    return db.query(models.ModelRecord).filter(models.ModelRecord.active==True).order_by(models.ModelRecord.created_at.desc()).first()
 
 
 def list_models(db: Session, limit: int=10):
