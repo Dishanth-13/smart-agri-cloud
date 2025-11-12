@@ -27,3 +27,8 @@ class ModelRecord(Base):
     id = Column(Integer, primary_key=True)
     name = Column(Text)
     path = Column(Text)
+    version = Column(Text, nullable=True)
+    accuracy = Column(Float, nullable=True)
+    metadata = Column(Text, nullable=True)
+    active = Column(Integer, server_default='0')
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())

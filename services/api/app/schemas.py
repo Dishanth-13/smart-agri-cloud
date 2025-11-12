@@ -22,5 +22,23 @@ class PredictRequest(BaseModel):
 class PredictResponse(BaseModel):
     predictions: list
 
+class ModelIn(BaseModel):
+    name: str
+    path: str
+    version: Optional[str] = None
+    accuracy: Optional[float] = None
+    metadata: Optional[dict] = None
+    activate: Optional[bool] = False
+
+class ModelOut(BaseModel):
+    id: int
+    name: str
+    path: str
+    version: Optional[str] = None
+    accuracy: Optional[float] = None
+    metadata: Optional[dict] = None
+    active: Optional[int] = 0
+    created_at: Optional[datetime] = None
+
 class Health(BaseModel):
     status: str
