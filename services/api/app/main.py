@@ -88,6 +88,24 @@ def get_latest_model(db: Session = Depends(get_db)):
         'created_at': m.created_at
     }
 
+@app.get('/models/list')
+def list_all_models(db: Session = Depends(get_db)):
+    """List all registered models ordered by creation date (newest first)"""
+    models_list = crud.list_models(db, limit=100)
+    return [
+        {
+            'id': m.id,
+            'name': m.name,
+            'path': m.path,
+            'version': m.version,
+            'accuracy': m.accuracy,
+            'metadata': None if not m.model_metadata else m.model_metadata,
+            'active': bool(m.active),
+            'created_at': m.created_at
+        }
+        for m in models_list
+    ]
+
 @app.post('/predict', response_model=PredictResponse)
 def predict(req: PredictRequest, db: Session = Depends(get_db)):
     # resolve features
