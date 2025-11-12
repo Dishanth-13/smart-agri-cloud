@@ -17,6 +17,7 @@ class ReadingIn(BaseModel):
 class PredictRequest(BaseModel):
     farm_id: Optional[int] = None
     features: Optional[dict] = None
+    top_k: Optional[int] = 5
 
 class PredictResponse(BaseModel):
     predictions: list

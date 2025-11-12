@@ -70,10 +70,12 @@ def predict(req: PredictRequest, db: Session = Depends(get_db)):
     x = np.array([[feats.get(k, 0) for k in order]])
 
     try:
+        # Determine top_k (default to 5 if not provided)
+        top_k = int(req.top_k) if getattr(req, 'top_k', None) else 5
         if hasattr(model, 'predict_proba'):
             probs = model.predict_proba(x)[0]
             classes = model.classes_
-            pairs = sorted(zip(classes, probs), key=lambda x: -x[1])[:5]
+            pairs = sorted(zip(classes, probs), key=lambda x: -x[1])[:top_k]
             preds = [{'crop': str(c), 'probability': float(p)} for c,p in pairs]
         else:
             pred = model.predict(x)[0]
