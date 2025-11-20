@@ -55,19 +55,188 @@ df = get_recent(num)
 # ============ TAB 1: READINGS ============
 with tab1:
     st.subheader('📊 Recent Sensor Readings')
-    st.dataframe(df, use_container_width=True)
     
-    st.metric('Total Readings', len(df))
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if 'temperature' in df.columns:
-            st.metric('Avg Temperature (°C)', f"{df['temperature'].mean():.1f}")
-    with col2:
-        if 'humidity' in df.columns:
-            st.metric('Avg Humidity (%)', f"{df['humidity'].mean():.1f}")
-    with col3:
-        if 'rainfall' in df.columns:
-            st.metric('Total Rainfall (mm)', f"{df['rainfall'].sum():.1f}")
+    # ====== NEW: Auto-Refresh Controls ======
+    col_refresh1, col_refresh2, col_refresh3 = st.columns([2, 2, 1])
+    with col_refresh1:
+        refresh_interval = st.selectbox(
+            'Auto-Refresh Interval',
+            options=[('Disabled', None), ('5 seconds', 5), ('10 seconds', 10), ('30 seconds', 30)],
+            format_func=lambda x: x[0],
+            key='refresh_interval'
+        )
+        refresh_interval = refresh_interval[1] if refresh_interval else None
+    
+    with col_refresh2:
+        if st.button('🔄 Refresh Now', key='manual_refresh_btn', use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+    
+    with col_refresh3:
+        if st.button('📥 Export CSV', key='export_csv_btn', use_container_width=True):
+            try:
+                csv_data = df.to_csv(index=False)
+                st.download_button(
+                    label='Download CSV',
+                    data=csv_data,
+                    file_name=f'readings_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
+                    mime='text/csv'
+                )
+            except Exception as e:
+                st.error(f'Export failed: {e}')
+    
+    # ====== NEW: Advanced Filtering ======
+    with st.expander('🔍 Advanced Filters', expanded=False):
+        filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
+        
+        with filter_col1:
+            if 'farm_id' in df.columns and len(df) > 0:
+                unique_farms = sorted(df['farm_id'].unique())
+                selected_farm = st.multiselect(
+                    'Filter by Farm ID',
+                    options=unique_farms,
+                    default=unique_farms,
+                    key='farm_filter'
+                )
+            else:
+                selected_farm = []
+        
+        with filter_col2:
+            if 'sensor_id' in df.columns and len(df) > 0:
+                unique_sensors = sorted(df['sensor_id'].unique())
+                selected_sensor = st.multiselect(
+                    'Filter by Sensor ID',
+                    options=unique_sensors,
+                    default=unique_sensors,
+                    key='sensor_filter'
+                )
+            else:
+                selected_sensor = []
+        
+        with filter_col3:
+            if 'temperature' in df.columns and len(df) > 0:
+                temp_min, temp_max = st.slider(
+                    'Temperature Range (°C)',
+                    min_value=float(df['temperature'].min() - 5),
+                    max_value=float(df['temperature'].max() + 5),
+                    value=(float(df['temperature'].min()), float(df['temperature'].max())),
+                    key='temp_filter'
+                )
+            else:
+                temp_min, temp_max = 0, 50
+        
+        with filter_col4:
+            if 'humidity' in df.columns and len(df) > 0:
+                humidity_min, humidity_max = st.slider(
+                    'Humidity Range (%)',
+                    min_value=float(df['humidity'].min() - 10),
+                    max_value=float(df['humidity'].max() + 10),
+                    value=(float(df['humidity'].min()), float(df['humidity'].max())),
+                    key='humidity_filter'
+                )
+            else:
+                humidity_min, humidity_max = 0, 100
+        
+        # Apply filters
+        df_filtered = df.copy()
+        if len(df) > 0:
+            if 'farm_id' in df_filtered.columns and selected_farm:
+                df_filtered = df_filtered[df_filtered['farm_id'].isin(selected_farm)]
+            if 'sensor_id' in df_filtered.columns and selected_sensor:
+                df_filtered = df_filtered[df_filtered['sensor_id'].isin(selected_sensor)]
+            if 'temperature' in df_filtered.columns:
+                df_filtered = df_filtered[(df_filtered['temperature'] >= temp_min) & (df_filtered['temperature'] <= temp_max)]
+            if 'humidity' in df_filtered.columns:
+                df_filtered = df_filtered[(df_filtered['humidity'] >= humidity_min) & (df_filtered['humidity'] <= humidity_max)]
+    
+    # Display filtered data
+    st.dataframe(df_filtered, use_container_width=True)
+    
+    # ====== NEW: Data Quality Indicators ======
+    if len(df_filtered) > 0:
+        st.subheader('📊 Data Quality Report')
+        
+        quality_col1, quality_col2, quality_col3, quality_col4, quality_col5 = st.columns(5)
+        
+        with quality_col1:
+            total = len(df_filtered)
+            st.metric('📈 Total Records', total)
+        
+        with quality_col2:
+            completeness = (1 - (df_filtered.isnull().sum().sum() / (len(df_filtered) * len(df_filtered.columns)))) * 100
+            st.metric('✓ Completeness', f'{completeness:.1f}%')
+        
+        with quality_col3:
+            null_count = df_filtered.isnull().sum().sum()
+            st.metric('⚠️ Missing Values', int(null_count))
+        
+        with quality_col4:
+            if 'farm_id' in df_filtered.columns:
+                unique_farms = df_filtered['farm_id'].nunique()
+                st.metric('🚜 Unique Farms', unique_farms)
+        
+        with quality_col5:
+            if 'sensor_id' in df_filtered.columns:
+                unique_sensors = df_filtered['sensor_id'].nunique()
+                st.metric('📡 Unique Sensors', unique_sensors)
+        
+        # Show null count per column
+        st.subheader('📋 Column Health')
+        null_per_column = df_filtered.isnull().sum().sort_values(ascending=False)
+        if null_per_column.sum() > 0:
+            st.bar_chart(null_per_column)
+        else:
+            st.success('✅ No missing values detected!')
+    
+    # ====== NEW: Visual Gauges ======
+    if len(df_filtered) > 0 and 'temperature' in df_filtered.columns and 'humidity' in df_filtered.columns:
+        st.subheader('🌡️ Environmental Gauges')
+        
+        gauge_col1, gauge_col2 = st.columns(2)
+        
+        with gauge_col1:
+            avg_temp = df_filtered['temperature'].mean()
+            st.metric('🌡️ Average Temperature', f'{avg_temp:.1f}°C')
+            # Create a simple gauge using progress bar
+            if 10 <= avg_temp <= 40:
+                temp_pct = (avg_temp - 10) / 30
+                temp_color = '🟢' if 20 <= avg_temp <= 35 else '🟡'
+            else:
+                temp_pct = 0
+                temp_color = '🔴'
+            st.write(f'{temp_color} Range: {df_filtered["temperature"].min():.1f}°C - {df_filtered["temperature"].max():.1f}°C')
+            st.progress(min(max(temp_pct, 0), 1))
+        
+        with gauge_col2:
+            avg_humidity = df_filtered['humidity'].mean()
+            st.metric('💧 Average Humidity', f'{avg_humidity:.1f}%')
+            if 40 <= avg_humidity <= 80:
+                humidity_pct = (avg_humidity - 40) / 40
+                humidity_color = '🟢' if 50 <= avg_humidity <= 70 else '🟡'
+            else:
+                humidity_pct = 0
+                humidity_color = '🔴'
+            st.write(f'{humidity_color} Range: {df_filtered["humidity"].min():.1f}% - {df_filtered["humidity"].max():.1f}%')
+            st.progress(min(max(humidity_pct, 0), 1))
+    
+    # ====== ORIGINAL: Summary Metrics ======
+    st.subheader('📈 Summary Statistics')
+    metric_col1, metric_col2, metric_col3 = st.columns(3)
+    with metric_col1:
+        st.metric('Total Readings (Filtered)', len(df_filtered))
+        if len(df_filtered) > 0 and 'temperature' in df_filtered.columns:
+            st.metric('Avg Temperature (°C)', f"{df_filtered['temperature'].mean():.1f}")
+    with metric_col2:
+        if len(df_filtered) > 0 and 'humidity' in df_filtered.columns:
+            st.metric('Avg Humidity (%)', f"{df_filtered['humidity'].mean():.1f}")
+        if len(df_filtered) > 0 and 'ph' in df_filtered.columns:
+            st.metric('Avg pH', f"{df_filtered['ph'].mean():.2f}")
+    with metric_col3:
+        if len(df_filtered) > 0 and 'rainfall' in df_filtered.columns:
+            st.metric('Total Rainfall (mm)', f"{df_filtered['rainfall'].sum():.1f}")
+        if len(df_filtered) > 0 and 'n' in df_filtered.columns:
+            st.metric('Avg Nitrogen', f"{df_filtered['n'].mean():.1f}")
+
 
 # ============ TAB 2: PREDICTIONS ============
 with tab2:
