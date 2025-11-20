@@ -283,23 +283,29 @@ with tab4:
     with tab5:
         st.subheader('📤 Data Upload Manager')
     
-        # Helper function to get DB stats
-        @st.cache_data(ttl=10)
+        # Helper function to get DB stats from API
+        @st.cache_data(ttl=5)
         def get_db_stats():
-            """Get current database statistics"""
+            """Get current database statistics from API"""
             try:
-                with engine.connect() as conn:
-                    total_rows = conn.execute(text("SELECT COUNT(*) FROM readings")).scalar()
-                    unique_farms = conn.execute(text("SELECT COUNT(DISTINCT farm_id) FROM readings")).scalar()
-                    unique_sensors = conn.execute(text("SELECT COUNT(DISTINCT sensor_id) FROM readings")).scalar()
-                    return {
-                        'total_rows': total_rows or 0,
-                        'unique_farms': unique_farms or 0,
-                        'unique_sensors': unique_sensors or 0
-                    }
+                resp = requests.get(f'{API_URL}/data/stats', timeout=10)
+                resp.raise_for_status()
+                return resp.json()
             except Exception as e:
-                st.warning(f'Failed to fetch stats: {e}')
-                return {'total_rows': 0, 'unique_farms': 0, 'unique_sensors': 0}
+                st.warning(f'Failed to fetch stats from API: {e}. Using fallback...')
+                try:
+                    # Fallback to direct database query
+                    with engine.connect() as conn:
+                        total_rows = conn.execute(text("SELECT COUNT(*) FROM readings")).scalar()
+                        unique_farms = conn.execute(text("SELECT COUNT(DISTINCT farm_id) FROM readings")).scalar()
+                        unique_sensors = conn.execute(text("SELECT COUNT(DISTINCT sensor_id) FROM readings")).scalar()
+                        return {
+                            'total_readings': total_rows or 0,
+                            'unique_farms': unique_farms or 0,
+                            'unique_sensors': unique_sensors or 0
+                        }
+                except:
+                    return {'total_readings': 0, 'unique_farms': 0, 'unique_sensors': 0}
     
         # Section 1: Current Database Statistics
         st.subheader('📊 Current Database Statistics')
@@ -308,11 +314,11 @@ with tab4:
     
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric('📈 Total Readings', f"{db_stats['total_rows']:,}")
+            st.metric('📈 Total Readings', f"{db_stats.get('total_readings', 0):,}")
         with col2:
-            st.metric('🚜 Unique Farms', f"{db_stats['unique_farms']}")
+            st.metric('🚜 Unique Farms', f"{db_stats.get('unique_farms', 0)}")
         with col3:
-            st.metric('📡 Unique Sensors', f"{db_stats['unique_sensors']}")
+            st.metric('📡 Unique Sensors', f"{db_stats.get('unique_sensors', 0)}")
     
         st.divider()
     
@@ -478,6 +484,22 @@ with tab4:
                                     if 'farm_id' not in df_full.columns:
                                         df_full['farm_id'] = 1
                                 
+                                    # Convert to list of dicts for API
+                                    readings_list = []
+                                    for _, row in df_full.iterrows():
+                                        reading = {
+                                            'sensor_id': str(row.get('sensor_id', '')) if row.get('sensor_id') else None,
+                                            'farm_id': int(row.get('farm_id', 1)) if row.get('farm_id') else None,
+                                            'temperature': float(row.get('temperature', 0.0)) if row.get('temperature') else None,
+                                            'humidity': float(row.get('humidity', 0.0)) if row.get('humidity') else None,
+                                            'ph': float(row.get('ph', 0.0)) if row.get('ph') else None,
+                                            'rainfall': float(row.get('rainfall', 0.0)) if row.get('rainfall') else None,
+                                            'n': int(row.get('n', 0)) if row.get('n') else None,
+                                            'p': int(row.get('p', 0)) if row.get('p') else None,
+                                            'k': int(row.get('k', 0)) if row.get('k') else None,
+                                        }
+                                        readings_list.append(reading)
+                                    
                                     # Show upload statistics
                                     st.subheader('📊 Upload Statistics')
                                     col1, col2, col3 = st.columns(3)
@@ -488,30 +510,41 @@ with tab4:
                                     with col3:
                                         st.metric('Unique Sensors', df_full['sensor_id'].nunique())
                                 
-                                    # Simulate progress
-                                    progress_bar = st.progress(0)
-                                    status_text = st.empty()
+                                    # Call API endpoint
+                                    payload = {
+                                        'readings': readings_list,
+                                        'batch_size': 500
+                                    }
+                                    
+                                    response = requests.post(
+                                        f'{API_URL}/ingest/bulk',
+                                        json=payload,
+                                        timeout=300  # 5 min timeout for large files
+                                    )
+                                    response.raise_for_status()
+                                    result = response.json()
+                                    
+                                    # Show results
+                                    if result['successful_rows'] > 0:
+                                        st.success(f'''
+                                        ✅ **Upload Successful!**
+                                    
+                                        📈 **Results:**
+                                        - **Total Rows:** {result['total_rows']:,}
+                                        - **Successfully Inserted:** {result['successful_rows']:,} ✓
+                                        - **Failed Rows:** {result['failed_rows']}
+                                        - **Processing Time:** {result['processing_time_ms']:.2f}ms
+                                    
+                                        💡 Refresh dashboard to see new data!
+                                        ''')
+                                        st.cache_data.clear()
+                                    else:
+                                        st.error('❌ No rows were successfully inserted')
+                                        if result.get('errors'):
+                                            st.error(f"Errors: {result['errors']}")
                                 
-                                    for i in range(1, 101):
-                                        progress_bar.progress(i / 100)
-                                        status_text.text(f'Processing: {i}%')
-                                        if i == 50:
-                                            import time
-                                            time.sleep(0.3)
-                                
-                                    st.success(f'''
-                                    ✅ **Upload Successful!**
-                                
-                                    📈 **Inserted:**
-                                    - **Rows:** {len(df_full):,}
-                                    - **Farms:** {df_full['farm_id'].nunique()}
-                                    - **Sensors:** {df_full['sensor_id'].nunique()}
-                                
-                                    💡 Refresh dashboard to see new data!
-                                    ''')
-                                
-                                    st.cache_data.clear()
-                                
+                                except requests.exceptions.RequestException as e:
+                                    st.error(f'❌ API Error: {str(e)}')
                                 except Exception as e:
                                     st.error(f'❌ Upload failed: {str(e)}')
             
