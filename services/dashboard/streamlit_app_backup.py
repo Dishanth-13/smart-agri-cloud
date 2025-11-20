@@ -240,403 +240,213 @@ with tab1:
 
 # ============ TAB 2: PREDICTIONS ============
 with tab2:
-    pred_tabs = st.tabs(['Single', 'Batch Upload', 'What-If', 'Seasonal'])
+    st.subheader('🔮 Predict from Latest Reading')
     
-    with pred_tabs[0]:
-        st.subheader('🔮 Single Prediction')
-        col1, col2 = st.columns(2)
-        with col1:
-            farm_id = st.number_input('Farm ID', min_value=1, value=1)
-        with col2:
-            top_k = st.slider('Top K predictions', min_value=1, max_value=10, value=5)
+    col1, col2 = st.columns(2)
+    with col1:
+        farm_id = st.number_input('Farm ID', min_value=1, value=1)
+    with col2:
+        top_k = st.slider('Top K predictions', min_value=1, max_value=10, value=5)
 
-        if st.button('🚀 Get Predictions'):
+    if st.button('🚀 Get Predictions', key='predict_btn'):
+        with st.spinner('Requesting predictions...'):
             try:
                 payload = {'farm_id': int(farm_id), 'top_k': int(top_k)}
                 resp = requests.post(f'{API_URL}/predict', json=payload, timeout=10)
                 resp.raise_for_status()
                 data = resp.json()
-                preds = data.get('predictions', [])
-                if preds:
-                    df_preds = pd.DataFrame(preds)
-                    df_preds['probability'] = df_preds['probability'].astype(float)
-                    df_preds.insert(0, 'rank', range(1, len(df_preds) + 1))
-                    st.table(df_preds.set_index('rank'))
-                    st.subheader('Confidence Distribution')
-                    chart = df_preds.sort_values('probability', ascending=False).set_index('crop')['probability']
-                    chart = chart[chart > 0.0]
-                    if not chart.empty:
-                        st.bar_chart(chart)
-                    best = df_preds.sort_values('probability', ascending=False).iloc[0]
-                    st.success(f"🌱 **Top:** {best['crop']} ({best['probability']:.2%})")
-                else:
-                    st.info('No predictions')
-            except Exception as e:
-                st.error(f'Error: {e}')
-    
-    with pred_tabs[1]:
-        st.subheader('📊 Batch Predictions from CSV')
-        batch_file = st.file_uploader('Upload CSV with sensor readings', type=['csv'], key='batch_pred_upload')
-        if batch_file:
-            try:
-                batch_df = pd.read_csv(batch_file)
-                st.write(f'📋 Loaded {len(batch_df)} rows')
-                st.dataframe(batch_df.head(3), use_container_width=True)
-                
-                if st.button('🚀 Process Batch', key='batch_pred_btn'):
-                    with st.spinner('Processing batch predictions...'):
-                        try:
-                            readings = batch_df.fillna(0).to_dict('records')
-                            resp = requests.post(f'{API_URL}/predict/batch', json={'readings': readings, 'top_k': 5}, timeout=60)
-                            resp.raise_for_status()
-                            result = resp.json()
-                            predictions = result.get('predictions', [])
-                            processing_time = result.get('processing_time_ms', 0)
-                            
-                            st.success(f'✅ Processed {len(predictions)} predictions in {processing_time:.0f}ms')
-                            
-                            results_df = pd.DataFrame([{
-                                'Row': idx + 1,
-                                'Top Crop': p[0]['crop'] if p else 'N/A',
-                                'Confidence': f"{p[0]['probability']:.1%}" if p else 'N/A',
-                                'Top 3': ', '.join([f"{crop['crop']} ({crop['probability']:.0%})" for crop in p[:3]]) if p else 'N/A'
-                            } for idx, p in enumerate(predictions)])
-                            
-                            st.dataframe(results_df, use_container_width=True)
-                            
-                            csv_results = results_df.to_csv(index=False)
-                            st.download_button(
-                                label='📥 Download Results',
-                                data=csv_results,
-                                file_name=f'batch_predictions_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
-                                mime='text/csv'
-                            )
-                        except Exception as e:
-                            st.error(f'Batch processing error: {e}')
-            except Exception as e:
-                st.error(f'File error: {e}')
-    
-    with pred_tabs[2]:
-        st.subheader('🔄 What-If Scenario Analysis')
-        st.write('Adjust environmental parameters to see how crop recommendations change')
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            wif_temp = st.slider('Temperature (°C)', 5.0, 50.0, 25.0, 0.5, key='wif_temp')
-            wif_ph = st.slider('pH Level', 4.0, 9.0, 6.5, 0.1, key='wif_ph')
-        with col2:
-            wif_humidity = st.slider('Humidity (%)', 20.0, 100.0, 65.0, 1.0, key='wif_humidity')
-            wif_rainfall = st.slider('Rainfall (mm)', 0.0, 500.0, 100.0, 10.0, key='wif_rainfall')
-        with col3:
-            wif_k = st.slider('Potassium (K)', 0.0, 100.0, 40.0, 1.0, key='wif_k')
-            wif_n = st.slider('Nitrogen (N)', 0.0, 100.0, 40.0, 1.0, key='wif_n')
-            wif_p = st.slider('Phosphorus (P)', 0.0, 100.0, 40.0, 1.0, key='wif_p')
-        
-        if st.button('🎯 Analyze Scenario', key='whatif_analyze'):
-            try:
-                payload = {
-                    'farm_id': 1,
-                    'top_k': 8,
-                    'sensor_data': {
-                        'temperature': float(wif_temp),
-                        'humidity': float(wif_humidity),
-                        'ph': float(wif_ph),
-                        'rainfall': float(wif_rainfall),
-                        'k': float(wif_k),
-                        'n': float(wif_n),
-                        'p': float(wif_p)
-                    }
-                }
-                resp = requests.post(f'{API_URL}/predict', json=payload, timeout=10)
-                resp.raise_for_status()
-                scenario_preds = resp.json().get('predictions', [])
-                
-                if scenario_preds:
-                    st.subheader('📊 Top Crops for This Scenario')
-                    for i, pred in enumerate(scenario_preds[:10], 1):
-                        conf = pred['probability']
-                        emoji = '🟢' if conf > 0.7 else '🟡' if conf > 0.4 else '🔴'
-                        st.write(f"{emoji} {i}. **{pred['crop']}** - {conf:.1%}")
-                    
-                    st.subheader('Visualization')
-                    scenario_df = pd.DataFrame(scenario_preds[:8])
-                    st.bar_chart(scenario_df.set_index('crop')['probability'])
-                    
-                    st.success(f"✅ **Best crop for this scenario:** {scenario_preds[0]['crop']}")
-            except Exception as e:
-                st.error(f'Analysis error: {e}')
-    
-    with pred_tabs[3]:
-        st.subheader('📅 Seasonal Crop Recommendations')
-        
-        if len(df) > 0:
-            seasons = {
-                'Winter (Dec-Feb)': {'temp': 15, 'humidity': 60},
-                'Summer (Mar-May)': {'temp': 35, 'humidity': 40},
-                'Monsoon (Jun-Sep)': {'temp': 28, 'humidity': 85},
-                'Autumn (Oct-Nov)': {'temp': 25, 'humidity': 65}
-            }
-            
-            selected_season = st.selectbox('Select Season', list(seasons.keys()), key='season_select')
-            
-            if st.button('🌾 Get Seasonal Recs', key='seasonal_btn'):
-                try:
-                    season_params = seasons[selected_season]
-                    payload = {
-                        'farm_id': 1,
-                        'top_k': 10,
-                        'sensor_data': {
-                            'temperature': float(season_params['temp']),
-                            'humidity': float(season_params['humidity']),
-                            'ph': 6.5,
-                            'rainfall': 100.0,
-                            'k': 40.0,
-                            'n': 40.0,
-                            'p': 40.0
-                        }
-                    }
-                    
-                    resp = requests.post(f'{API_URL}/predict', json=payload, timeout=10)
-                    resp.raise_for_status()
-                    seasonal_preds = resp.json().get('predictions', [])
-                    
-                    if seasonal_preds:
-                        st.subheader(f'🌾 Best Crops for {selected_season}')
-                        for i, pred in enumerate(seasonal_preds[:8], 1):
-                            emoji = '🟢' if pred['probability'] > 0.7 else '🟡' if pred['probability'] > 0.4 else '🔴'
-                            st.write(f"{emoji} {i}. **{pred['crop']}** - {pred['probability']:.1%} suitability")
-                        
-                        seasonal_df = pd.DataFrame(seasonal_preds[:8])
-                        st.bar_chart(seasonal_df.set_index('crop')['probability'])
-                        
-                        st.info(f"**Top recommendation:** {seasonal_preds[0]['crop']} ({seasonal_preds[0]['probability']:.1%})")
-                except Exception as e:
-                    st.error(f'Error: {e}')
-        else:
-            st.info('📊 Load data in Tab 1 to see seasonal recommendations')
 
-# ============ TAB 3: MODEL MANAGEMENT (ENHANCED) ============
+                preds = data.get('predictions', [])
+                if not preds:
+                    st.info('No predictions returned from the API.')
+                else:
+                    # Normalize into DataFrame and ensure correct dtypes
+                    df_preds = pd.DataFrame(preds)
+                    if 'probability' in df_preds.columns:
+                        df_preds['probability'] = df_preds['probability'].astype(float)
+                    else:
+                        df_preds['probability'] = 0.0
+
+                    # Add 1-based ranking column and show table using rank as index (hides 0-based index)
+                    df_preds.insert(0, 'rank', range(1, len(df_preds) + 1))
+                    st.subheader(f'✅ Top {len(df_preds)} Predictions')
+                    # use rank as the DataFrame index so Streamlit doesn't display the default 0-based index
+                    st.table(df_preds.set_index('rank'))
+
+                    # Graphical representation heading and bar chart of probabilities (crop -> probability)
+                    st.subheader('📈 Graphical Representation')
+                    try:
+                        chart = df_preds.sort_values('probability', ascending=False).set_index('crop')['probability']
+                        # remove non-positive probabilities (<= 0.0) from the graphical representation
+                        chart = chart[chart > 0.0]
+                        if chart.empty:
+                            st.info('No positive probabilities to display in the chart.')
+                        else:
+                            st.bar_chart(chart)
+                    except Exception:
+                        # fallback if charting fails
+                        pass
+
+                    # Highlight best prediction
+                    best = df_preds.sort_values('probability', ascending=False).iloc[0]
+                    st.success(f"🌱 **Recommended crop:** {best['crop']} — Confidence: {best['probability']:.2%}")
+
+            except requests.exceptions.RequestException as re:
+                st.error(f'Network/API error: {re}')
+            except Exception as e:
+                st.error(f'Prediction error: {e}')
+
+# ============ TAB 3: MODEL MANAGEMENT ============
 with tab3:
-    models_list_tab3 = get_models()
-    active_model_tab3 = get_active_model()
+    st.subheader('🤖 Model Registry & Management')
     
-    model_tabs = st.tabs(['Performance', 'Comparison', 'Features', 'Version Diff'])
+    # Fetch models
+    models_list = get_models()
+    active_model = get_active_model()
     
-    with model_tabs[0]:
-        st.subheader('📊 Model Performance Metrics')
-        if active_model_tab3:
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric('🎯 Accuracy', f"{active_model_tab3.get('accuracy', 0):.2%}")
-            with col2:
-                st.metric('📌 Version', active_model_tab3.get('version', 'N/A'))
-            with col3:
-                st.metric('✅ Status', 'Active')
-            
-            st.subheader('Per-Crop Performance Estimates')
-            crops = ['rice', 'maize', 'chickpea', 'kidneybeans', 'pigeonpeas', 'mothbeans', 'mungbean', 'blackgram', 'lentil', 'pomegranate']
-            perf_data = pd.DataFrame({
-                'Crop': crops,
-                'Precision': [0.92 + (i % 10) * 0.005 for i in range(10)],
-                'Recall': [0.88 + (i % 10) * 0.005 for i in range(10)],
-                'F1-Score': [0.90 + (i % 10) * 0.005 for i in range(10)]
-            })
-            st.dataframe(perf_data, use_container_width=True)
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.subheader('Precision by Crop')
-                st.bar_chart(perf_data.set_index('Crop')['Precision'])
-            with col2:
-                st.subheader('F1-Score by Crop')
-                st.bar_chart(perf_data.set_index('Crop')['F1-Score'])
-        else:
-            st.info('No active model available')
+    # Active Model Section
+    if active_model:
+        st.success(f"✅ **Active Model:** {active_model.get('name')} (v{active_model.get('version', 'N/A')})")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric('Accuracy', f"{active_model.get('accuracy', 0):.2%}")
+        with col2:
+            st.metric('Version', active_model.get('version', 'N/A'))
+        with col3:
+            st.metric('ID', active_model.get('id', 'N/A'))
+        with col4:
+            created_at = active_model.get('created_at', 'N/A')
+            st.metric('Created', created_at[:10] if isinstance(created_at, str) else 'N/A')
+    else:
+        st.warning('⚠️ No active model registered. Register a model to enable predictions.')
     
-    with model_tabs[1]:
-        st.subheader('🔄 Model Comparison')
-        if models_list_tab3 and len(models_list_tab3) > 1:
-            df_models = pd.DataFrame(models_list_tab3)
-            if 'accuracy' in df_models.columns:
-                df_models['Accuracy'] = df_models['accuracy'].apply(lambda x: f'{x:.2%}')
-            if 'active' in df_models.columns:
-                df_models['Status'] = df_models['active'].apply(lambda x: '✅' if x else '⏸️')
-            st.dataframe(df_models[['name', 'version', 'Accuracy', 'Status']], use_container_width=True)
-            
-            st.subheader('Accuracy Comparison Chart')
-            comp_df = pd.DataFrame(models_list_tab3).sort_values('accuracy', ascending=False)
-            st.bar_chart(comp_df[['version', 'accuracy']].set_index('version'))
-        else:
-            st.info('Register multiple models to enable comparison')
+    st.divider()
     
-    with model_tabs[2]:
-        st.subheader('🎯 Feature Importance Analysis')
-        if active_model_tab3:
-            features_list = ['Rainfall', 'Temperature', 'Humidity', 'pH', 'Nitrogen', 'Phosphorus', 'Potassium']
-            importance_scores = [0.28, 0.22, 0.18, 0.15, 0.09, 0.05, 0.03]
-            
-            feat_df = pd.DataFrame({
-                'Feature': features_list,
-                'Importance': importance_scores,
-                'Percentage': [f'{s*100:.1f}%' for s in importance_scores]
-            }).sort_values('Importance', ascending=False)
-            
-            st.dataframe(feat_df, use_container_width=True)
-            st.subheader('Feature Distribution')
-            st.bar_chart(feat_df.set_index('Feature')['Importance'])
-            
-            st.info('''**Key Insights:** Rainfall (28%) is most important, Temperature+Humidity = 40%, Soil properties are collectively important''')
+    # Model History Section
+    st.subheader('📚 Model Version History')
     
-    with model_tabs[3]:
-        st.subheader('📝 Model Version Diff')
-        if models_list_tab3 and len(models_list_tab3) > 1:
-            versions = [m['version'] for m in models_list_tab3]
-            col1, col2 = st.columns(2)
-            with col1:
-                v1 = st.selectbox('Version 1', versions, key='v1_sel')
-            with col2:
-                v2 = st.selectbox('Version 2', versions, key='v2_sel')
-            
-            m1 = next((m for m in models_list_tab3 if m['version'] == v1), None)
-            m2 = next((m for m in models_list_tab3 if m['version'] == v2), None)
-            
-            if m1 and m2:
-                diff_table = pd.DataFrame([
-                    {'Metric': 'Accuracy', 'V1': f"{m1.get('accuracy', 0):.2%}", 'V2': f"{m2.get('accuracy', 0):.2%}", 'Change': f"{((m2.get('accuracy', 0) - m1.get('accuracy', 0))*100):+.2f}%"},
-                    {'Metric': 'Status', 'V1': '✅' if m1.get('active') else '⏸️', 'V2': '✅' if m2.get('active') else '⏸️', 'Change': ''}
-                ])
-                st.dataframe(diff_table, use_container_width=True)
-                if m2.get('accuracy', 0) > m1.get('accuracy', 0):
-                    st.success(f"✅ Version {v2} is better")
+    if models_list and len(models_list) > 0:
+        # Create DataFrame from models
+        df_models = pd.DataFrame(models_list)
+        
+        # Format columns for display
+        if 'created_at' in df_models.columns:
+            df_models['created_at'] = pd.to_datetime(df_models['created_at']).dt.strftime('%Y-%m-%d %H:%M:%S')
+        if 'accuracy' in df_models.columns:
+            df_models['accuracy'] = df_models['accuracy'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "N/A")
+        if 'active' in df_models.columns:
+            df_models['status'] = df_models['active'].apply(lambda x: '✅ Active' if x else '⏸️ Inactive')
+        
+        # Display models table
+        st.dataframe(df_models, use_container_width=True, hide_index=True)
         
         st.divider()
-        st.subheader('🚀 Activate Model')
-        if models_list_tab3 and len(models_list_tab3) > 1:
-            inactive = [m for m in models_list_tab3 if not m.get('active')]
-            if inactive:
-                selected = st.selectbox('Select', inactive, format_func=lambda x: f"{x['name']} v{x['version']}", key='model_sel')
-                if st.button('Activate', key='activate_btn'):
-                    try:
-                        payload = {'name': selected['name'], 'path': selected['path'], 'version': selected['version'], 'accuracy': selected['accuracy'], 'activate': True}
-                        resp = requests.post(f'{API_URL}/models/register', json=payload, timeout=10)
-                        resp.raise_for_status()
-                        st.success(f"✅ Activated")
-                        st.cache_data.clear()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f'Error: {e}')
-
-# ============ TAB 4: ANALYTICS (ENHANCED) ============
-with tab4:
-    analytics_tabs = st.tabs(['📊 Trends', '🌾 Crops', '📈 Correlations', '⚠️ Anomalies', '🏢 Farms'])
-    
-    with analytics_tabs[0]:
-        st.subheader('📊 Sensor Data Trends')
-        if not df.empty and 'ts' in df.columns:
-            df_chart = df.copy()
-            df_chart['ts'] = pd.to_datetime(df_chart['ts'])
-            df_chart = df_chart.sort_values('ts')
+        
+        # Model Rollback Section
+        st.subheader('🔄 Activate Model Version')
+        
+        if len(models_list) > 1:
+            # Allow selection from inactive models
+            inactive_models = [m for m in models_list if not m.get('active')]
             
-            col1, col2 = st.columns(2)
-            with col1:
-                if 'temperature' in df_chart.columns:
-                    st.subheader('🌡️ Temperature')
-                    st.line_chart(df_chart.set_index('ts')[['temperature']])
-            with col2:
-                if 'humidity' in df_chart.columns:
-                    st.subheader('💧 Humidity')
-                    st.line_chart(df_chart.set_index('ts')[['humidity']])
-            
-            if 'rainfall' in df_chart.columns:
-                st.subheader('🌧️ Rainfall')
-                st.bar_chart(df_chart.set_index('ts')[['rainfall']])
-        else:
-            st.info('No data available')
-    
-    with analytics_tabs[1]:
-        st.subheader('🌾 Crop-Specific Analytics')
-        if 'label' in df.columns and len(df) > 0:
-            crop_counts = df['label'].value_counts().head(10)
-            st.subheader('Crop Distribution')
-            st.bar_chart(crop_counts)
-            
-            selected_crop = st.selectbox('Select Crop for Details', df['label'].unique(), key='crop_detail')
-            crop_data = df[df['label'] == selected_crop]
-            
-            if len(crop_data) > 0:
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric('📊 Count', len(crop_data))
-                with col2:
-                    if 'temperature' in crop_data.columns:
-                        st.metric('🌡️ Avg Temp', f"{crop_data['temperature'].mean():.1f}°C")
-                with col3:
-                    if 'humidity' in crop_data.columns:
-                        st.metric('💧 Avg Humidity', f"{crop_data['humidity'].mean():.1f}%")
-                with col4:
-                    if 'rainfall' in crop_data.columns:
-                        st.metric('🌧️ Avg Rainfall', f"{crop_data['rainfall'].mean():.1f}mm")
+            if inactive_models:
+                selected_model = st.selectbox(
+                    'Select a model to activate:',
+                    options=inactive_models,
+                    format_func=lambda x: f"{x['name']} v{x.get('version', 'N/A')} (ID: {x['id']}) - Accuracy: {x.get('accuracy', 0):.2%}"
+                )
                 
-                st.dataframe(crop_data.head(5), use_container_width=True)
-        else:
-            st.info('No crop data')
-    
-    with analytics_tabs[2]:
-        st.subheader('📈 Feature Correlation Analysis')
-        if len(df) > 2:
-            numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns.tolist()
-            numeric_cols = [c for c in numeric_cols if c not in ['id', 'farm_id', 'sensor_id']]
-            
-            if len(numeric_cols) > 1:
-                corr_matrix = df[numeric_cols].corr()
-                st.write('Correlation matrix between environmental factors:')
-                st.dataframe(corr_matrix, use_container_width=True)
-                st.info('Higher values (close to 1) indicate strong positive correlation')
-        else:
-            st.info('Insufficient data for correlation analysis')
-    
-    with analytics_tabs[3]:
-        st.subheader('⚠️ Anomaly Detection')
-        if len(df) > 0 and 'temperature' in df.columns:
-            temp_mean = df['temperature'].mean()
-            temp_std = df['temperature'].std()
-            temp_thresh = 2 * temp_std
-            
-            anomalies = df[abs(df['temperature'] - temp_mean) > temp_thresh]
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric('⚠️ Anomalies', len(anomalies))
-            with col2:
-                st.metric('Normal Range', f'{temp_mean - temp_thresh:.1f}°C - {temp_mean + temp_thresh:.1f}°C')
-            
-            if len(anomalies) > 0:
-                st.write('Detected anomalies:')
-                st.dataframe(anomalies[['ts', 'temperature', 'farm_id']], use_container_width=True)
+                if st.button('🚀 Activate Selected Model', key='activate_model_btn'):
+                    with st.spinner('Activating model...'):
+                        try:
+                            # Call API to activate (via re-registration with activate=true)
+                            payload = {
+                                'name': selected_model['name'],
+                                'path': selected_model['path'],
+                                'version': selected_model.get('version'),
+                                'accuracy': selected_model.get('accuracy'),
+                                'activate': True
+                            }
+                            resp = requests.post(f'{API_URL}/models/register', json=payload, timeout=10)
+                            resp.raise_for_status()
+                            st.success(f"✅ Model {selected_model['name']} v{selected_model.get('version')} activated!")
+                            st.cache_data.clear()  # Clear cache to refresh models
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f'Failed to activate model: {e}')
             else:
-                st.success('✅ No anomalies detected')
+                st.info('ℹ️ All models are currently active or only one model exists.')
         else:
-            st.info('Cannot detect anomalies - insufficient data')
+            st.info('ℹ️ Only one model registered. Register more models to enable rollback.')
+    else:
+        st.info('ℹ️ No models registered yet. Register a model via the API to get started.')
+        st.code("""
+# Example: Register a model via API
+curl -X POST http://localhost:8000/models/register \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "name": "crop_rf",
+    "path": "/app/models/crop_rf.joblib",
+    "version": "v1",
+    "accuracy": 0.9932,
+    "activate": true
+  }'
+        """, language='bash')
+
+# ============ TAB 4: ANALYTICS ============
+with tab4:
+    st.subheader('📈 System Analytics')
     
-    with analytics_tabs[4]:
-        st.subheader('🏢 Multi-Farm Comparison')
-        if 'farm_id' in df.columns and len(df) > 0:
-            farms = sorted(df['farm_id'].unique())
-            farm_data = []
-            
-            for farm in farms:
-                farm_df = df[df['farm_id'] == farm]
-                farm_data.append({
-                    'Farm ID': farm,
-                    'Readings': len(farm_df),
-                    'Avg Temp': f"{farm_df['temperature'].mean():.1f}°C" if 'temperature' in farm_df.columns else 'N/A',
-                    'Avg Humidity': f"{farm_df['humidity'].mean():.1f}%" if 'humidity' in farm_df.columns else 'N/A',
-                    'Sensors': farm_df['sensor_id'].nunique() if 'sensor_id' in farm_df.columns else 0
-                })
-            
-            st.dataframe(pd.DataFrame(farm_data), use_container_width=True)
-        else:
-            st.info('Single farm deployment')
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.metric('Total Models Registered', len(models_list) if models_list else 0)
+        st.metric('Active Model', f"{active_model.get('name', 'None')} v{active_model.get('version', 'N/A')}" if active_model else 'None')
+    
+    with col2:
+        if active_model:
+            st.metric('Active Model Accuracy', f"{active_model.get('accuracy', 0):.2%}")
+        if models_list and len(models_list) > 0:
+            best_accuracy = max([m.get('accuracy', 0) for m in models_list])
+            st.metric('Best Model Accuracy', f"{best_accuracy:.2%}")
+    
+    st.divider()
+    
+    st.subheader('📊 Sensor Data Trends')
+    
+    if not df.empty and 'ts' in df.columns:
+        # Convert ts to datetime if needed
+        df_chart = df.copy()
+        df_chart['ts'] = pd.to_datetime(df_chart['ts'])
+        df_chart = df_chart.sort_values('ts')
+        
+        # Plot temperature trend
+        if 'temperature' in df_chart.columns:
+            st.line_chart(df_chart.set_index('ts')[['temperature']], use_container_width=True)
+            st.caption('Temperature Trend')
+        
+        # Plot humidity trend
+        if 'humidity' in df_chart.columns:
+            st.line_chart(df_chart.set_index('ts')[['humidity']], use_container_width=True)
+            st.caption('Humidity Trend')
+        
+        # Plot rainfall trend
+        if 'rainfall' in df_chart.columns:
+            st.bar_chart(df_chart.set_index('ts')[['rainfall']], use_container_width=True)
+            st.caption('Rainfall Trend')
+    else:
+        st.info('No data available to display trends.')
+    
+    st.divider()
+    
+    st.subheader('ℹ️ System Information')
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.write(f'**API URL:** {API_URL}')
+    with col2:
+        st.write(f'**Database:** smart_agri')
+    with col3:
+        st.write(f'**Dashboard Updated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
 
     # ============ TAB 5: DATA UPLOAD ============
     with tab5:
